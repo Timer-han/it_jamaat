@@ -1,0 +1,46 @@
+# Russian translations for IT Jama'at Bot
+# Copyright (C) 2025 IT Jama'at
+# This file is distributed under the same license as the IT Jama'at Bot project.
+# FIRST AUTHOR <email>, 2025.
+
+msgid ""
+msgstr ""
+"Project-Id-Version: IT Jama'at Bot 1.0\n"
+"Language: ru\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Добро пожаловать в IT Jama'at Bot!"
+msgstr "Добро пожаловать в IT Jama'at Bot!"
+
+msgid "Ближайшие события:"
+msgstr "Ближайшие события:"
+
+msgid "Событий нет."
+msgstr "Событий нет."
+
+msgid "Менторов нет."
+msgstr "Менторов нет."
+
+msgid "Менторы и их ближайшие события:"
+msgstr "Менторы и их ближайшие события:"
+
+msgid "Выберите категорию записей:"
+msgstr "Выберите категорию записей:"
+
+msgid "Записей нет."
+msgstr "Записей нет."
+
+msgid "Записей в этой категории нет."
+msgstr "Записей в этой категории нет."
+
+msgid "Записи по категории {category}:"
+msgstr "Записи по категории {category}:"
+
+msgid "Последние вакансии:"
+msgstr "Последние вакансии:"
+
+msgid "Вакансий нет."
+msgstr "Вакансий нет."
+
+msgid "Активных проектов нет."
+msgstr "Активных проектов нет."

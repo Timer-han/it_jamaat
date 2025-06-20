@@ -5,6 +5,7 @@ load_dotenv()
 
 class Config:
     BOT_TOKEN: str = os.getenv('BOT_TOKEN')
-    DATABASE_URL: str = os.getenv('DATABASE_URL')
+    ADMINS: set[int] = set(map(int, os.getenv('ADMINS', '').split(',')))
+    SQLALCHEMY_URL: str = os.getenv('SQLALCHEMY_URL')
 
 config = Config()

@@ -1,21 +1,12 @@
-# Базовый образ с Python
 FROM python:3.11-slim
 
-# Установка переменных окружения
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# Устанавливаем зависимости для Babel (distutils)
+RUN apt-get update && apt-get install -y python3-distutils && rm -rf /var/lib/apt/lists/*
 
-# Рабочая директория
 WORKDIR /usr/src/app
-
-# Копирование зависимостей
-COPY requirements.txt ./
-
-# Установка зависимостей
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Копирование исходников
+RUN ls
+RUN pybabel compile -d locales
 COPY . .
-
-# Команда запуска (можно переопределить в docker-compose)
-CMD ["python", "-m", "app.main"]
+CMD ["python", "-u", "app/main.py"]

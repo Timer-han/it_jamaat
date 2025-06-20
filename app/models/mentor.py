@@ -1,16 +1,11 @@
-from sqlalchemy import Column, Integer, String, Text
-from sqlalchemy.orm import relationship
-from app.utils.db import Base
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from .base import Base
 
 class Mentor(Base):
     __tablename__ = 'mentors'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), nullable=False)
-    bio = Column(Text, nullable=True)
-    contact = Column(String(255), nullable=True)
-
-    events = relationship('Event', back_populates='mentor')
-
-    def __repr__(self):
-        return f"<Mentor(id={self.id}, name='{self.name}')>"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    bio: Mapped[str] = mapped_column(String(1000))
+    contact: Mapped[str] = mapped_column(String(100))
+    events: Mapped[list['Event']] = relationship('Event', back_populates='mentor')

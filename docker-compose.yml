@@ -1,32 +1,19 @@
-version: '3.8'
-
+version: "3.8"
 services:
   bot:
     build: .
-    container_name: telegram_bot
     restart: always
-    env_file:
-      - .env
+    env_file: .env
     depends_on:
       - db
-    volumes:
-      - ./:/usr/src/app
-    command: python -m app.main
-
   db:
     image: postgres:15
-    container_name: telegram_bot_db
     restart: always
-    env_file:
-      - .env
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: telegram_bot
-
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db_data:/var/lib/postgresql/data
 volumes:
-  pgdata:
+  db_data:

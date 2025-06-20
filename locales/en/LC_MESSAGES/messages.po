@@ -1,0 +1,44 @@
+# English translations for IT Jama'at Bot
+# (automatically extracted msgid in Russian)
+
+msgid ""
+msgstr ""
+"Project-Id-Version: IT Jama'at Bot 1.0\n"
+"Language: en\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Добро пожаловать в IT Jama'at Bot!"
+msgstr "Welcome to the IT Jama'at Bot!"
+
+msgid "Ближайшие события:"
+msgstr "Upcoming events:"
+
+msgid "Событий нет."
+msgstr "No upcoming events."
+
+msgid "Менторов нет."
+msgstr "No mentors available."
+
+msgid "Менторы и их ближайшие события:"
+msgstr "Mentors and their next events:"
+
+msgid "Выберите категорию записей:"
+msgstr "Select a records category:"
+
+msgid "Записей нет."
+msgstr "No records available."
+
+msgid "Записей в этой категории нет."
+msgstr "No records in this category."
+
+msgid "Записи по категории {category}:"
+msgstr "Records in category {category}:"
+
+msgid "Последние вакансии:"
+msgstr "Latest vacancies:"
+
+msgid "Вакансий нет."
+msgstr "No vacancies available."
+
+msgid "Активных проектов нет."
+msgstr "No active projects."

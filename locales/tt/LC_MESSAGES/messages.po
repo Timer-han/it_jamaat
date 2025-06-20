@@ -1,0 +1,44 @@
+# Tatar translations for IT Jama'at Bot
+# (automatically extracted msgid in Russian)
+
+msgid ""
+msgstr ""
+"Project-Id-Version: IT Jama'at Bot 1.0\n"
+"Language: tt\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Добро пожаловать в IT Jama'at Bot!"
+msgstr "IT Jama'at Bot'ка рәхим итегез!"
+
+msgid "Ближайшие события:"
+msgstr "Якындагы чаралар:"
+
+msgid "Событий нет."
+msgstr "Якындагы чаралар юк."
+
+msgid "Менторов нет."
+msgstr "Менторлар юк."
+
+msgid "Менторы и их ближайшие события:"
+msgstr "Менторлар һәм аларның якындагы чаралары:"
+
+msgid "Выберите категорию записей:"
+msgstr "Язмалар категориясен сайлагыз:"
+
+msgid "Записей нет."
+msgstr "Язмалар юк."
+
+msgid "Записей в этой категории нет."
+msgstr "Бу категориядә язмалар юк."
+
+msgid "Записи по категории {category}:"
+msgstr "{category} категориясе язмалары:"
+
+msgid "Последние вакансии:"
+msgstr "Соңгы вакансияләр:"
+
+msgid "Вакансий нет."
+msgstr "Вакансияләр юк."
+
+msgid "Активных проектов нет."
+msgstr "Актив проектлар юк."

@@ -1,13 +1,10 @@
-from sqlalchemy import Column, Integer, String, Text
-from app.utils.db import Base
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column
+from .base import Base
 
 class Vacancy(Base):
     __tablename__ = 'vacancies'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    link = Column(String(500), nullable=False)
-
-    def __repr__(self):
-        return f"<Vacancy(id={self.id}, title='{self.title}')>"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000))
+    link: Mapped[str] = mapped_column(String(300), nullable=False)
