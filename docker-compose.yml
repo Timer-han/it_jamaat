@@ -1,19 +1,26 @@
-version: "3.8"
+version: '3.8'
+
 services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: it_jamaate
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
   bot:
     build: .
-    restart: always
-    env_file: .env
     depends_on:
-      - db
-  db:
-    image: postgres:15
-    restart: always
+      - postgres
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASS}
-      POSTGRES_DB: ${DB_NAME}
+      - DATABASE_URL=postgresql+asyncpg://user:password@postgres:5432/it_jamaate
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - ./media:/app/media
+      - .env:/app/.env
+
 volumes:
-  db_data:
+  postgres_data:
