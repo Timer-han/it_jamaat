@@ -1,12 +1,465 @@
+# IT Jama'at Telegram Bot MVP
+# Структура проекта и основные файлы
+
+# 1. requirements.txt
+"""
+aiogram==3.4.1
+asyncpg==0.29.0
+python-dotenv==1.0.0
+sqlalchemy[asyncio]==2.0.25
+alembic==1.13.1
+aiofiles==23.2.1
+pillow==10.2.0
+"""
+
+# 2. .env (создать и заполнить своими данными)
+"""
+BOT_TOKEN=your_bot_token_here
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/it_jamaate
+ADMIN_IDS=123456789,987654321
+"""
+
+# 3. docker-compose.yml
+"""
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: it_jamaate
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  bot:
+    build: .
+    depends_on:
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@postgres:5432/it_jamaate
+    volumes:
+      - ./media:/app/media
+      - .env:/app/.env
+
+volumes:
+  postgres_data:
+"""
+
+# 4. Dockerfile
+"""
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY . .
+
+CMD ["python", "-u", "app/main.py"]
+"""
+
+# 5. app/database/models.py
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Table
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
+from datetime import datetime
+
+Base = declarative_base()
+
+# Связующая таблица для проектов и специальностей
+project_skills = Table('project_skills', Base.metadata,
+    Column('project_id', Integer, ForeignKey('projects.id')),
+    Column('skill', String(50))
+)
+
+class User(Base):
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(Integer, unique=True, nullable=False)
+    username = Column(String(50))
+    full_name = Column(String(100))
+    is_admin = Column(Boolean, default=False)
+    is_mentor = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Mentor(Base):
+    __tablename__ = 'mentors'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    name = Column(String(100), nullable=False)
+    bio = Column(Text)
+    specialization = Column(String(100))
+    contact_info = Column(String(200))
+    is_active = Column(Boolean, default=True)
+    
+    user = relationship("User", backref="mentor_profile")
+
+class Event(Base):
+    __tablename__ = 'events'
+    
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    event_type = Column(String(50))  # lecture, meeting, seminar
+    mentor_id = Column(Integer, ForeignKey('mentors.id'))
+    date_time = Column(DateTime, nullable=False)
+    location = Column(String(200))
+    is_active = Column(Boolean, default=True)
+    created_by = Column(Integer, ForeignKey('users.id'))
+    
+    mentor = relationship("Mentor", backref="events")
+    creator = relationship("User", backref="created_events")
+
+class Lecture(Base):
+    __tablename__ = 'lectures'
+    
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    category = Column(String(100))
+    mentor_id = Column(Integer, ForeignKey('mentors.id'))
+    file_path = Column(String(500))
+    video_url = Column(String(500))
+    duration = Column(Integer)  # в минутах
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_by = Column(Integer, ForeignKey('users.id'))
+    
+    mentor = relationship("Mentor", backref="lectures")
+    uploader = relationship("User", backref="uploaded_lectures")
+
+class Vacancy(Base):
+    __tablename__ = 'vacancies'
+    
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    company = Column(String(100))
+    description = Column(Text)
+    requirements = Column(Text)
+    salary_range = Column(String(100))
+    location = Column(String(100))
+    contact_info = Column(String(200))
+    is_active = Column(Boolean, default=True)
+    posted_at = Column(DateTime, default=datetime.utcnow)
+    posted_by = Column(Integer, ForeignKey('users.id'))
+    
+    poster = relationship("User", backref="posted_vacancies")
+
+class Project(Base):
+    __tablename__ = 'projects'
+    
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    status = Column(String(50), default='discussion')  # discussion, development, completed
+    required_skills = Column(Text)  # JSON строка со списком навыков
+    contact_person = Column(Integer, ForeignKey('users.id'))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+    
+    contact = relationship("User", backref="managed_projects")
+
+
+# 6. app/database/database.py
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import sessionmaker
+from .models import Base
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_async_engine(DATABASE_URL, echo=True)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+async def get_session():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+# 7. app/handlers/user_handlers.py
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
+from database.database import AsyncSessionLocal
+from database.models import Event, Mentor, Lecture, Vacancy, Project, User
+from datetime import datetime, timedelta
+import json
+
+router = Router()
+
+@router.message(Command("start"))
+async def start_command(message: Message):
+    async with AsyncSessionLocal() as session:
+        # Регистрируем пользователя если его нет
+        result = await session.execute(
+            select(User).where(User.telegram_id == message.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            user = User(
+                telegram_id=message.from_user.id,
+                username=message.from_user.username,
+                full_name=message.from_user.full_name
+            )
+            session.add(user)
+            await session.commit()
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 Мероприятия", callback_data="events")],
+        [InlineKeyboardButton(text="👨‍🏫 Менторы", callback_data="mentors")],
+        [InlineKeyboardButton(text="📚 Лекции", callback_data="lectures")],
+        [InlineKeyboardButton(text="💼 Вакансии", callback_data="vacancies")],
+        [InlineKeyboardButton(text="🚀 Проекты", callback_data="projects")]
+    ])
+    
+    await message.answer(
+        "Ассаляму алейкум! Добро пожаловать в IT Jama'at! 🕌💻\n\n"
+        "Здесь мусульмане-айтишники находят единомышленников, учатся и развиваются вместе.\n\n"
+        "Выберите интересующий раздел:",
+        reply_markup=keyboard
+    )
+
+@router.callback_query(F.data == "events")
+async def show_events(callback: CallbackQuery):
+    async with AsyncSessionLocal() as session:
+        # Получаем ближайшие мероприятия
+        result = await session.execute(
+            select(Event)
+            .options(selectinload(Event.mentor))
+            .where(and_(Event.is_active == True, Event.date_time > datetime.utcnow()))
+            .order_by(Event.date_time)
+            .limit(10)
+        )
+        events = result.scalars().all()
+    
+    if not events:
+        await callback.message.edit_text("📅 Пока нет запланированных мероприятий")
+        return
+    
+    text = "📅 **Ближайшие мероприятия:**\n\n"
+    for event in events:
+        mentor_name = event.mentor.name if event.mentor else "Не указан"
+        text += f"🔸 **{event.title}**\n"
+        text += f"📍 {event.location or 'Онлайн'}\n"
+        text += f"⏰ {event.date_time.strftime('%d.%m.%Y %H:%M')}\n"
+        text += f"👨‍🏫 {mentor_name}\n"
+        if event.description:
+            text += f"📝 {event.description[:100]}...\n"
+        text += "\n"
+    
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+
+@router.callback_query(F.data == "mentors")
+async def show_mentors(callback: CallbackQuery):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Mentor).where(Mentor.is_active == True)
+        )
+        mentors = result.scalars().all()
+    
+    if not mentors:
+        await callback.message.edit_text("👨‍🏫 Пока нет активных менторов")
+        return
+    
+    text = "👨‍🏫 **Наши менторы:**\n\n"
+    for mentor in mentors:
+        text += f"🔸 **{mentor.name}**\n"
+        text += f"💼 {mentor.specialization or 'Специализация не указана'}\n"
+        if mentor.bio:
+            text += f"📝 {mentor.bio[:100]}...\n"
+        if mentor.contact_info:
+            text += f"📞 {mentor.contact_info}\n"
+        text += "\n"
+    
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+
+@router.callback_query(F.data == "lectures")
+async def show_lectures(callback: CallbackQuery):
+    # Показываем категории лекций
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💻 Программирование", callback_data="lectures_programming")],
+        [InlineKeyboardButton(text="🔒 Кибербезопасность", callback_data="lectures_security")],
+        [InlineKeyboardButton(text="📊 Data Science", callback_data="lectures_data")],
+        [InlineKeyboardButton(text="🌐 Web разработка", callback_data="lectures_web")],
+        [InlineKeyboardButton(text="📱 Mobile разработка", callback_data="lectures_mobile")],
+        [InlineKeyboardButton(text="🎯 Все лекции", callback_data="lectures_all")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    
+    await callback.message.edit_text(
+        "📚 **Выберите категорию лекций:**",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+@router.callback_query(F.data.startswith("lectures_"))
+async def show_lectures_by_category(callback: CallbackQuery):
+    category = callback.data.replace("lectures_", "")
+    
+    async with AsyncSessionLocal() as session:
+        if category == "all":
+            result = await session.execute(
+                select(Lecture).options(selectinload(Lecture.mentor)).order_by(Lecture.uploaded_at.desc())
+            )
+        else:
+            category_map = {
+                "programming": "Программирование",
+                "security": "Кибербезопасность", 
+                "data": "Data Science",
+                "web": "Web разработка",
+                "mobile": "Mobile разработка"
+            }
+            result = await session.execute(
+                select(Lecture)
+                .options(selectinload(Lecture.mentor))
+                .where(Lecture.category == category_map.get(category, category))
+                .order_by(Lecture.uploaded_at.desc())
+            )
+        
+        lectures = result.scalars().all()
+    
+    if not lectures:
+        await callback.message.edit_text("📚 В данной категории пока нет лекций")
+        return
+    
+    text = f"📚 **Лекции {'по всем категориям' if category == 'all' else category_map.get(category, category)}:**\n\n"
+    
+    for lecture in lectures[:10]:  # Показываем первые 10
+        mentor_name = lecture.mentor.name if lecture.mentor else "Неизвестно"
+        text += f"🔸 **{lecture.title}**\n"
+        text += f"👨‍🏫 {mentor_name}\n"
+        text += f"📂 {lecture.category or 'Без категории'}\n"
+        if lecture.duration:
+            text += f"⏱ {lecture.duration} мин\n"
+        if lecture.description:
+            text += f"📝 {lecture.description[:80]}...\n"
+        text += f"📅 {lecture.uploaded_at.strftime('%d.%m.%Y')}\n\n"
+    
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ К категориям", callback_data="lectures")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+
+@router.callback_query(F.data == "vacancies")
+async def show_vacancies(callback: CallbackQuery):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Vacancy).where(Vacancy.is_active == True).order_by(Vacancy.posted_at.desc())
+        )
+        vacancies = result.scalars().all()
+    
+    if not vacancies:
+        await callback.message.edit_text("💼 Пока нет активных вакансий")
+        return
+    
+    text = "💼 **Актуальные вакансии:**\n\n"
+    for vacancy in vacancies[:10]:
+        text += f"🔸 **{vacancy.title}**\n"
+        text += f"🏢 {vacancy.company or 'Компания не указана'}\n"
+        if vacancy.salary_range:
+            text += f"💰 {vacancy.salary_range}\n"
+        text += f"📍 {vacancy.location or 'Не указано'}\n"
+        if vacancy.description:
+            text += f"📝 {vacancy.description[:100]}...\n"
+        if vacancy.contact_info:
+            text += f"📞 {vacancy.contact_info}\n"
+        text += "\n"
+    
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+
+@router.callback_query(F.data == "projects")
+async def show_projects(callback: CallbackQuery):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Project)
+            .options(selectinload(Project.contact))
+            .where(Project.is_active == True)
+            .order_by(Project.created_at.desc())
+        )
+        projects = result.scalars().all()
+    
+    if not projects:
+        await callback.message.edit_text("🚀 Пока нет активных проектов")
+        return
+    
+    text = "🚀 **Активные проекты:**\n\n"
+    for project in projects[:10]:
+        status_emoji = {"discussion": "💬", "development": "⚙️", "completed": "✅"}
+        status_text = {"discussion": "Обсуждение", "development": "Разработка", "completed": "Завершен"}
+        
+        text += f"🔸 **{project.title}**\n"
+        text += f"{status_emoji.get(project.status, '📋')} {status_text.get(project.status, project.status)}\n"
+        if project.description:
+            text += f"📝 {project.description[:100]}...\n"
+        if project.required_skills:
+            text += f"🛠 Нужны: {project.required_skills[:50]}...\n"
+        text += f"📅 {project.created_at.strftime('%d.%m.%Y')}\n\n"
+    
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 Мероприятия", callback_data="events")],
+        [InlineKeyboardButton(text="👨‍🏫 Менторы", callback_data="mentors")],
+        [InlineKeyboardButton(text="📚 Лекции", callback_data="lectures")],
+        [InlineKeyboardButton(text="💼 Вакансии", callback_data="vacancies")],
+        [InlineKeyboardButton(text="🚀 Проекты", callback_data="projects")]
+    ])
+    
+    await callback.message.edit_text(
+        "🕌💻 **IT Jama'at**\n\n"
+        "Выберите интересующий раздел:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+# 8. handlers/admin_handlers.py
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select, and_
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from database.database import AsyncSessionLocal
-from database.models import User, Mentor, Event, Lecture, Vacancy, Project
+from database.models import User, Mentor, Event, Lecture
 import os
 from datetime import datetime, timedelta
 
@@ -622,7 +1075,6 @@ async def remove_mentor_confirmed(callback: CallbackQuery):
         else:
             await callback.message.edit_text("❌ Ментор не найден")
 
-
 @admin_router.callback_query(F.data == "admin_stats")
 async def show_admin_stats(callback: CallbackQuery):
     if not await is_admin(callback.from_user.id):
@@ -665,89 +1117,65 @@ async def show_admin_stats(callback: CallbackQuery):
         lectures_result = await session.execute(select(Lecture))
         total_lectures = len(lectures_result.scalars().all())
         
-        # Инициализируем переменные для статистики по вакансиям и проектам
-        active_vacancies = 0
-        active_projects = 0
-        discussion_count = 0
-        development_count = 0
-        completed_count = 0
-        programming_count = 0
-        security_count = 0
-        data_count = 0
-        web_count = 0
-        mobile_count = 0
+        # Количество активных вакансий
+        vacancies_result = await session.execute(
+            select(Vacancy).where(Vacancy.is_active == True)
+        )
+        active_vacancies = len(vacancies_result.scalars().all())
         
-        try:
-            # Количество активных вакансий
-            vacancies_result = await session.execute(
-                select(Vacancy).where(Vacancy.is_active == True)
-            )
-            active_vacancies = len(vacancies_result.scalars().all())
-        except Exception:
-            # Если таблица Vacancy не существует, пропускаем
-            pass
+        # Количество активных проектов
+        projects_result = await session.execute(
+            select(Project).where(Project.is_active == True)
+        )
+        active_projects = len(projects_result.scalars().all())
         
-        try:
-            # Количество активных проектов
-            projects_result = await session.execute(
-                select(Project).where(Project.is_active == True)
+        # Статистика по статусам проектов
+        discussion_projects = await session.execute(
+            select(Project).where(
+                and_(Project.is_active == True, Project.status == 'discussion')
             )
-            active_projects = len(projects_result.scalars().all())
-            
-            # Статистика по статусам проектов
-            discussion_projects = await session.execute(
-                select(Project).where(
-                    and_(Project.is_active == True, Project.status == 'discussion')
-                )
-            )
-            discussion_count = len(discussion_projects.scalars().all())
-            
-            development_projects = await session.execute(
-                select(Project).where(
-                    and_(Project.is_active == True, Project.status == 'development')
-                )
-            )
-            development_count = len(development_projects.scalars().all())
-            
-            completed_projects = await session.execute(
-                select(Project).where(
-                    and_(Project.is_active == True, Project.status == 'completed')
-                )
-            )
-            completed_count = len(completed_projects.scalars().all())
-        except Exception:
-            # Если таблица Project не существует, пропускаем
-            pass
+        )
+        discussion_count = len(discussion_projects.scalars().all())
         
-        try:
-            # Статистика по категориям лекций
-            programming_lectures = await session.execute(
-                select(Lecture).where(Lecture.category == 'Программирование')
+        development_projects = await session.execute(
+            select(Project).where(
+                and_(Project.is_active == True, Project.status == 'development')
             )
-            programming_count = len(programming_lectures.scalars().all())
-            
-            security_lectures = await session.execute(
-                select(Lecture).where(Lecture.category == 'Кибербезопасность')
+        )
+        development_count = len(development_projects.scalars().all())
+        
+        completed_projects = await session.execute(
+            select(Project).where(
+                and_(Project.is_active == True, Project.status == 'completed')
             )
-            security_count = len(security_lectures.scalars().all())
-            
-            data_lectures = await session.execute(
-                select(Lecture).where(Lecture.category == 'Data Science')
-            )
-            data_count = len(data_lectures.scalars().all())
-            
-            web_lectures = await session.execute(
-                select(Lecture).where(Lecture.category == 'Web разработка')
-            )
-            web_count = len(web_lectures.scalars().all())
-            
-            mobile_lectures = await session.execute(
-                select(Lecture).where(Lecture.category == 'Mobile разработка')
-            )
-            mobile_count = len(mobile_lectures.scalars().all())
-        except Exception:
-            # Если у Lecture нет поля category, пропускаем
-            pass
+        )
+        completed_count = len(completed_projects.scalars().all())
+        
+        # Статистика по категориям лекций
+        programming_lectures = await session.execute(
+            select(Lecture).where(Lecture.category == 'Программирование')
+        )
+        programming_count = len(programming_lectures.scalars().all())
+        
+        security_lectures = await session.execute(
+            select(Lecture).where(Lecture.category == 'Кибербезопасность')
+        )
+        security_count = len(security_lectures.scalars().all())
+        
+        data_lectures = await session.execute(
+            select(Lecture).where(Lecture.category == 'Data Science')
+        )
+        data_count = len(data_lectures.scalars().all())
+        
+        web_lectures = await session.execute(
+            select(Lecture).where(Lecture.category == 'Web разработка')
+        )
+        web_count = len(web_lectures.scalars().all())
+        
+        mobile_lectures = await session.execute(
+            select(Lecture).where(Lecture.category == 'Mobile разработка')
+        )
+        mobile_count = len(mobile_lectures.scalars().all())
     
     # Формируем текст статистики
     text = "📊 **Статистика IT Jama'at**\n\n"
@@ -795,7 +1223,6 @@ async def show_admin_stats(callback: CallbackQuery):
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
-
 @admin_router.callback_query(F.data == "detailed_stats")
 async def show_detailed_stats(callback: CallbackQuery):
     if not await is_admin(callback.from_user.id):
@@ -818,55 +1245,38 @@ async def show_detailed_stats(callback: CallbackQuery):
         recent_events_count = len(recent_events.scalars().all())
         
         # Статистика по лекциям за последние 30 дней
-        recent_lectures_count = 0
-        recent_vacancies_count = 0
-        recent_projects_count = 0
+        recent_lectures = await session.execute(
+            select(Lecture).where(Lecture.uploaded_at >= thirty_days_ago)
+        )
+        recent_lectures_count = len(recent_lectures.scalars().all())
         
-        try:
-            recent_lectures = await session.execute(
-                select(Lecture).where(Lecture.uploaded_at >= thirty_days_ago)
-            )
-            recent_lectures_count = len(recent_lectures.scalars().all())
-        except Exception:
-            pass
+        # Статистика по вакансиям за последние 30 дней
+        recent_vacancies = await session.execute(
+            select(Vacancy).where(Vacancy.posted_at >= thirty_days_ago)
+        )
+        recent_vacancies_count = len(recent_vacancies.scalars().all())
         
-        try:
-            # Статистика по вакансиям за последние 30 дней
-            recent_vacancies = await session.execute(
-                select(Vacancy).where(Vacancy.posted_at >= thirty_days_ago)
-            )
-            recent_vacancies_count = len(recent_vacancies.scalars().all())
-        except Exception:
-            pass
-        
-        try:
-            # Статистика по проектам за последние 30 дней
-            recent_projects = await session.execute(
-                select(Project).where(Project.created_at >= thirty_days_ago)
-            )
-            recent_projects_count = len(recent_projects.scalars().all())
-        except Exception:
-            pass
+        # Статистика по проектам за последние 30 дней
+        recent_projects = await session.execute(
+            select(Project).where(Project.created_at >= thirty_days_ago)
+        )
+        recent_projects_count = len(recent_projects.scalars().all())
         
         # Топ-5 менторов по количеству мероприятий
+        top_mentors = await session.execute(
+            select(Mentor.name, Event.mentor_id)
+            .join(Event)
+            .where(Event.is_active == True)
+            .group_by(Mentor.name, Event.mentor_id)
+        )
         mentor_events = {}
-        try:
-            top_mentors = await session.execute(
-                select(Mentor.name, Event.mentor_id)
-                .join(Event)
-                .where(Event.is_active == True)
-                .group_by(Mentor.name, Event.mentor_id)
-            )
-            
-            for mentor_name, mentor_id in top_mentors:
-                mentor_events_count = await session.execute(
-                    select(Event).where(
-                        and_(Event.mentor_id == mentor_id, Event.is_active == True)
-                    )
+        for mentor_name, mentor_id in top_mentors:
+            mentor_events_count = await session.execute(
+                select(Event).where(
+                    and_(Event.mentor_id == mentor_id, Event.is_active == True)
                 )
-                mentor_events[mentor_name] = len(mentor_events_count.scalars().all())
-        except Exception:
-            pass
+            )
+            mentor_events[mentor_name] = len(mentor_events_count.scalars().all())
         
         # Сортируем менторов по количеству мероприятий
         sorted_mentors = sorted(mentor_events.items(), key=lambda x: x[1], reverse=True)[:5]
@@ -890,7 +1300,6 @@ async def show_detailed_stats(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-
 
 @admin_router.callback_query(F.data == "daily_stats")
 async def show_daily_stats(callback: CallbackQuery):
@@ -916,39 +1325,26 @@ async def show_daily_stats(callback: CallbackQuery):
         )
         today_events_count = len(today_events.scalars().all())
         
-        today_lectures_count = 0
-        today_vacancies_count = 0
-        today_projects_count = 0
-        
-        try:
-            today_lectures = await session.execute(
-                select(Lecture).where(
-                    and_(Lecture.uploaded_at >= today, Lecture.uploaded_at < tomorrow)
-                )
+        today_lectures = await session.execute(
+            select(Lecture).where(
+                and_(Lecture.uploaded_at >= today, Lecture.uploaded_at < tomorrow)
             )
-            today_lectures_count = len(today_lectures.scalars().all())
-        except Exception:
-            pass
+        )
+        today_lectures_count = len(today_lectures.scalars().all())
         
-        try:
-            today_vacancies = await session.execute(
-                select(Vacancy).where(
-                    and_(Vacancy.posted_at >= today, Vacancy.posted_at < tomorrow)
-                )
+        today_vacancies = await session.execute(
+            select(Vacancy).where(
+                and_(Vacancy.posted_at >= today, Vacancy.posted_at < tomorrow)
             )
-            today_vacancies_count = len(today_vacancies.scalars().all())
-        except Exception:
-            pass
+        )
+        today_vacancies_count = len(today_vacancies.scalars().all())
         
-        try:
-            today_projects = await session.execute(
-                select(Project).where(
-                    and_(Project.created_at >= today, Project.created_at < tomorrow)
-                )
+        today_projects = await session.execute(
+            select(Project).where(
+                and_(Project.created_at >= today, Project.created_at < tomorrow)
             )
-            today_projects_count = len(today_projects.scalars().all())
-        except Exception:
-            pass
+        )
+        today_projects_count = len(today_projects.scalars().all())
         
         # Статистика за вчера
         yesterday = today - timedelta(days=1)
@@ -997,7 +1393,6 @@ async def show_daily_stats(callback: CallbackQuery):
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
-
 @admin_router.callback_query(F.data == "admin_back")
 async def admin_back(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1010,3 +1405,57 @@ async def admin_back(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text("🔧 **Панель администратора**", reply_markup=keyboard, parse_mode="Markdown")
+
+# 9. main.py
+import asyncio
+import logging
+from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
+from handlers.user_handlers import router
+from handlers.admin_handlers import admin_router
+from database.database import init_db
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+
+async def main():
+    # Инициализация бота и диспетчера
+    bot = Bot(token=os.getenv("BOT_TOKEN"))
+    dp = Dispatcher(storage=MemoryStorage())
+    
+    # Подключение роутеров
+    dp.include_router(router)
+    dp.include_router(admin_router)
+    
+    # Инициализация базы данных
+    await init_db()
+    
+    # Запуск поллинга
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+# 10. Инструкции по запуску:
+
+"""
+1. Создайте папку проекта и файловую структуру:
+    it_jamaate_bot/
+    ├── requirements.txt
+    ├── .env
+    ├── Dockerfile
+    ├── docker-compose.yml
+    └── app
+        ├── main.py
+        ├── database/
+        │   ├── __init__.py
+        │   ├── models.py
+        │   └── database.py
+        └── handlers/
+            ├── __init__.py
+            ├── user_handlers.py
+            └── admin_handlers.py
+"""
