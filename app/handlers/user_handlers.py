@@ -56,11 +56,24 @@ async def show_events(callback: CallbackQuery):
         )
         events = result.scalars().all()
     
+    # Добавляем время обновления для избежания дублирования контента
+    current_time = datetime.now().strftime("%H:%M")
+    
     if not events:
-        await callback.message.edit_text("📅 Пока нет запланированных мероприятий")
+        # Добавляем кнопки навигации даже когда нет событий
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data="events")],
+            [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
+        ])
+        text = f"📅 Пока нет запланированных мероприятий\n\n🕐 Обновлено: {current_time}"
+        try:
+            await callback.message.edit_text(text, reply_markup=back_keyboard)
+        except Exception:
+            # Если не удалось отредактировать, отправляем ответ
+            await callback.answer("📅 Список мероприятий обновлен")
         return
     
-    text = "📅 **Ближайшие мероприятия:**\n\n"
+    text = f"📅 **Ближайшие мероприятия:**\n\n"
     for event in events:
         mentor_name = event.mentor.name if event.mentor else "Не указан"
         text += f"🔸 **{event.title}**\n"
@@ -71,11 +84,19 @@ async def show_events(callback: CallbackQuery):
             text += f"📝 {event.description[:100]}...\n"
         text += "\n"
     
+    text += f"🕐 Обновлено: {current_time}"
+    
+    # Добавляем кнопку обновления списка
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="events")],
+        [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    try:
+        await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    except Exception:
+        # Если не удалось отредактировать, отправляем ответ
+        await callback.answer("📅 Список мероприятий обновлен")
 
 @router.callback_query(F.data == "mentors")
 async def show_mentors(callback: CallbackQuery):
@@ -85,11 +106,23 @@ async def show_mentors(callback: CallbackQuery):
         )
         mentors = result.scalars().all()
     
+    # Добавляем время обновления для избежания дублирования контента
+    current_time = datetime.now().strftime("%H:%M")
+    
     if not mentors:
-        await callback.message.edit_text("👨‍🏫 Пока нет активных менторов")
+        # Добавляем кнопки навигации даже когда нет менторов
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data="mentors")],
+            [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
+        ])
+        text = f"👨‍🏫 Пока нет активных менторов\n\n🕐 Обновлено: {current_time}"
+        try:
+            await callback.message.edit_text(text, reply_markup=back_keyboard)
+        except Exception:
+            await callback.answer("👨‍🏫 Список менторов обновлен")
         return
     
-    text = "👨‍🏫 **Наши менторы:**\n\n"
+    text = f"👨‍🏫 **Наши менторы:**\n\n"
     for mentor in mentors:
         text += f"🔸 **{mentor.name}**\n"
         text += f"💼 {mentor.specialization or 'Специализация не указана'}\n"
@@ -99,11 +132,18 @@ async def show_mentors(callback: CallbackQuery):
             text += f"📞 {mentor.contact_info}\n"
         text += "\n"
     
+    text += f"🕐 Обновлено: {current_time}"
+    
+    # Добавляем кнопку обновления списка
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="mentors")],
+        [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    try:
+        await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    except Exception:
+        await callback.answer("👨‍🏫 Список менторов обновлен")
 
 @router.callback_query(F.data == "lectures")
 async def show_lectures(callback: CallbackQuery):
@@ -115,7 +155,7 @@ async def show_lectures(callback: CallbackQuery):
         [InlineKeyboardButton(text="🌐 Web разработка", callback_data="lectures_web")],
         [InlineKeyboardButton(text="📱 Mobile разработка", callback_data="lectures_mobile")],
         [InlineKeyboardButton(text="🎯 Все лекции", callback_data="lectures_all")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
     ])
     
     await callback.message.edit_text(
@@ -127,6 +167,9 @@ async def show_lectures(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("lectures_"))
 async def show_lectures_by_category(callback: CallbackQuery):
     category = callback.data.replace("lectures_", "")
+    
+    # Добавляем время обновления для избежания дублирования контента
+    current_time = datetime.now().strftime("%H:%M")
     
     async with AsyncSessionLocal() as session:
         if category == "all":
@@ -150,8 +193,26 @@ async def show_lectures_by_category(callback: CallbackQuery):
         
         lectures = result.scalars().all()
     
+    category_map = {
+        "programming": "Программирование",
+        "security": "Кибербезопасность", 
+        "data": "Data Science",
+        "web": "Web разработка",
+        "mobile": "Mobile разработка"
+    }
+    
     if not lectures:
-        await callback.message.edit_text("📚 В данной категории пока нет лекций")
+        # Улучшенная навигация для пустого списка лекций
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"lectures_{category}")],
+            [InlineKeyboardButton(text="◀️ К категориям", callback_data="lectures")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")]
+        ])
+        text = f"📚 В данной категории пока нет лекций\n\n🕐 Обновлено: {current_time}"
+        try:
+            await callback.message.edit_text(text, reply_markup=back_keyboard)
+        except Exception:
+            await callback.answer("📚 Список лекций обновлен")
         return
     
     text = f"📚 **Лекции {'по всем категориям' if category == 'all' else category_map.get(category, category)}:**\n\n"
@@ -167,12 +228,19 @@ async def show_lectures_by_category(callback: CallbackQuery):
             text += f"📝 {lecture.description[:80]}...\n"
         text += f"📅 {lecture.uploaded_at.strftime('%d.%m.%Y')}\n\n"
     
+    text += f"🕐 Обновлено: {current_time}"
+    
+    # Улучшенная навигация с кнопкой обновления
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"lectures_{category}")],
         [InlineKeyboardButton(text="◀️ К категориям", callback_data="lectures")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    try:
+        await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    except Exception:
+        await callback.answer("📚 Список лекций обновлен")
 
 @router.callback_query(F.data == "vacancies")
 async def show_vacancies(callback: CallbackQuery):
@@ -182,11 +250,23 @@ async def show_vacancies(callback: CallbackQuery):
         )
         vacancies = result.scalars().all()
     
+    # Добавляем время обновления для избежания дублирования контента
+    current_time = datetime.now().strftime("%H:%M")
+    
     if not vacancies:
-        await callback.message.edit_text("💼 Пока нет активных вакансий")
+        # Добавляем кнопки навигации даже когда нет вакансий
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data="vacancies")],
+            [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
+        ])
+        text = f"💼 Пока нет активных вакансий\n\n🕐 Обновлено: {current_time}"
+        try:
+            await callback.message.edit_text(text, reply_markup=back_keyboard)
+        except Exception:
+            await callback.answer("💼 Список вакансий обновлен")
         return
     
-    text = "💼 **Актуальные вакансии:**\n\n"
+    text = f"💼 **Актуальные вакансии:**\n\n"
     for vacancy in vacancies[:10]:
         text += f"🔸 **{vacancy.title}**\n"
         text += f"🏢 {vacancy.company or 'Компания не указана'}\n"
@@ -199,11 +279,18 @@ async def show_vacancies(callback: CallbackQuery):
             text += f"📞 {vacancy.contact_info}\n"
         text += "\n"
     
+    text += f"🕐 Обновлено: {current_time}"
+    
+    # Добавляем кнопку обновления списка
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="vacancies")],
+        [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    try:
+        await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    except Exception:
+        await callback.answer("💼 Список вакансий обновлен")
 
 @router.callback_query(F.data == "projects")
 async def show_projects(callback: CallbackQuery):
@@ -216,11 +303,23 @@ async def show_projects(callback: CallbackQuery):
         )
         projects = result.scalars().all()
     
+    # Добавляем время обновления для избежания дублирования контента
+    current_time = datetime.now().strftime("%H:%M")
+    
     if not projects:
-        await callback.message.edit_text("🚀 Пока нет активных проектов")
+        # Добавляем кнопки навигации даже когда нет проектов
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data="projects")],
+            [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
+        ])
+        text = f"🚀 Пока нет активных проектов\n\n🕐 Обновлено: {current_time}"
+        try:
+            await callback.message.edit_text(text, reply_markup=back_keyboard)
+        except Exception:
+            await callback.answer("🚀 Список проектов обновлен")
         return
     
-    text = "🚀 **Активные проекты:**\n\n"
+    text = f"🚀 **Активные проекты:**\n\n"
     for project in projects[:10]:
         status_emoji = {"discussion": "💬", "development": "⚙️", "completed": "✅"}
         status_text = {"discussion": "Обсуждение", "development": "Разработка", "completed": "Завершен"}
@@ -233,11 +332,18 @@ async def show_projects(callback: CallbackQuery):
             text += f"🛠 Нужны: {project.required_skills[:50]}...\n"
         text += f"📅 {project.created_at.strftime('%d.%m.%Y')}\n\n"
     
+    text += f"🕐 Обновлено: {current_time}"
+    
+    # Добавляем кнопку обновления списка
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="projects")],
+        [InlineKeyboardButton(text="◀️ Главное меню", callback_data="back_to_main")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    try:
+        await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="Markdown")
+    except Exception:
+        await callback.answer("🚀 Список проектов обновлен")
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery):
@@ -250,6 +356,24 @@ async def back_to_main(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text(
+        "🕌💻 **IT Jama'at**\n\n"
+        "Выберите интересующий раздел:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+# Дополнительный обработчик для команды /menu (для быстрого возврата к главному меню)
+@router.message(Command("menu"))
+async def menu_command(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 Мероприятия", callback_data="events")],
+        [InlineKeyboardButton(text="👨‍🏫 Менторы", callback_data="mentors")],
+        [InlineKeyboardButton(text="📚 Лекции", callback_data="lectures")],
+        [InlineKeyboardButton(text="💼 Вакансии", callback_data="vacancies")],
+        [InlineKeyboardButton(text="🚀 Проекты", callback_data="projects")]
+    ])
+    
+    await message.answer(
         "🕌💻 **IT Jama'at**\n\n"
         "Выберите интересующий раздел:",
         reply_markup=keyboard,
