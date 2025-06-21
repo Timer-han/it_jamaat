@@ -155,6 +155,132 @@ async def get_event_datetime(message: Message, state: FSMContext):
         ])
         await message.answer("❌ Неверный формат! Используйте ДД.ММ.ГГГГ ЧЧ:ММ", reply_markup=keyboard)
 
+@admin_router.message(AdminStates.event_location)
+async def get_event_location(message: Message, state: FSMContext):
+    await state.update_data(location=message.text)
+    
+    # Получаем список доступных менторов
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Mentor).where(Mentor.is_active == True)
+        )
+        mentors = result.scalars().all()
+    
+    if not mentors:
+        # Если нет менторов, сохраняем мероприятие без ментора
+        await save_event_without_mentor(message, state)
+        return
+    
+    # Создаем клавиатуру с менторами
+    keyboard_buttons = []
+    
+    # Кнопка "Без ментора"
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="❌ Без ментора", callback_data="select_mentor_none")
+    ])
+    
+    # Добавляем менторов
+    for mentor in mentors:
+        keyboard_buttons.append([
+            InlineKeyboardButton(
+                text=f"👨‍🏫 {mentor.name} ({mentor.specialization})",
+                callback_data=f"select_mentor_{mentor.id}"
+            )
+        ])
+    
+    # Кнопка отмены
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add_event")
+    ])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    
+    await message.answer(
+        "👨‍🏫 **Выберите ментора для мероприятия:**\n\n"
+        "Вы можете назначить ментора сейчас или оставить мероприятие без ментора.",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+@admin_router.callback_query(F.data.startswith("select_mentor_"))
+async def select_mentor_for_event(callback: CallbackQuery, state: FSMContext):
+    if callback.data == "select_mentor_none":
+        mentor_id = None
+        mentor_name = "Не назначен"
+    else:
+        mentor_id = int(callback.data.split("_")[-1])
+        
+        # Получаем имя ментора
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Mentor).where(Mentor.id == mentor_id)
+            )
+            mentor = result.scalar_one()
+            mentor_name = mentor.name
+    
+    # Сохраняем мероприятие
+    data = await state.get_data()
+    
+    async with AsyncSessionLocal() as session:
+        event = Event(
+            title=data['title'],
+            description=data['description'],
+            date_time=data['datetime'],
+            location=data['location'],
+            mentor_id=mentor_id,
+            is_active=True
+        )
+        session.add(event)
+        await session.commit()
+    
+    # Формируем текст подтверждения
+    confirmation_text = "✅ **Мероприятие успешно создано!**\n\n"
+    confirmation_text += f"📅 **Название:** {data['title']}\n"
+    confirmation_text += f"📝 **Описание:** {data['description']}\n"
+    confirmation_text += f"⏰ **Дата и время:** {data['datetime'].strftime('%d.%m.%Y %H:%M')}\n"
+    confirmation_text += f"📍 **Место:** {data['location']}\n"
+    confirmation_text += f"👨‍🏫 **Ментор:** {mentor_name}\n"
+    
+    # Добавляем кнопку возврата в админ панель
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔧 Вернуться в админ панель", callback_data="admin_back")]
+    ])
+    
+    await callback.message.edit_text(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
+    await state.clear()
+
+async def save_event_without_mentor(message: Message, state: FSMContext):
+    """Сохраняет мероприятие без ментора"""
+    data = await state.get_data()
+    
+    async with AsyncSessionLocal() as session:
+        event = Event(
+            title=data['title'],
+            description=data['description'],
+            date_time=data['datetime'],
+            location=data['location'],
+            mentor_id=None,
+            is_active=True
+        )
+        session.add(event)
+        await session.commit()
+    
+    # Формируем текст подтверждения
+    confirmation_text = "✅ **Мероприятие успешно создано!**\n\n"
+    confirmation_text += f"📅 **Название:** {data['title']}\n"
+    confirmation_text += f"📝 **Описание:** {data['description']}\n"
+    confirmation_text += f"⏰ **Дата и время:** {data['datetime'].strftime('%d.%m.%Y %H:%M')}\n"
+    confirmation_text += f"📍 **Место:** {data['location']}\n"
+    confirmation_text += f"👨‍🏫 **Ментор:** Не назначен\n"
+    
+    # Добавляем кнопку возврата в админ панель
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔧 Вернуться в админ панель", callback_data="admin_back")]
+    ])
+    
+    await message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
+    await state.clear()
+
 # Новый обработчик для отмены создания мероприятия
 @admin_router.callback_query(F.data == "cancel_add_event")
 async def cancel_add_event(callback: CallbackQuery, state: FSMContext):

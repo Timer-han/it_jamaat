@@ -17,7 +17,7 @@ services:
     depends_on:
       - postgres
     environment:
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=postgresql+asyncpg://user:password@postgres:5432/it_jamaate
     volumes:
       - ./media:/app/media
       - .env:/app/.env
